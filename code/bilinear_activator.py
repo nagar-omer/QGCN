@@ -217,25 +217,32 @@ class BilinearActivator:
         test = test_dataset if test_dataset else test
 
         # set train loader
-        self._train_loader = DataLoader(
+        self._balanced_train_loader = DataLoader(
             train.dataset,
             batch_size=1,
             sampler=ImbalancedDatasetSampler(train.dataset)
             # shuffle=True
         )
+        # set train loader
+        self._unbalanced_train_loader = DataLoader(
+            train.dataset,
+            batch_size=1,
+            # sampler=ImbalancedDatasetSampler(train.dataset)
+            shuffle=True
+        )
         # set validation loader
         self._dev_loader = DataLoader(
             dev,
             batch_size=1,
-            sampler=ImbalancedDatasetSampler(dev)
-            # shuffle=True
+            # sampler=ImbalancedDatasetSampler(dev)
+            shuffle=True
         )
         # set train loader
         self._train_loader = DataLoader(
             test,
             batch_size=1,
-            sampler=ImbalancedDatasetSampler(test)
-            # shuffle=True
+            # sampler=ImbalancedDatasetSampler(test)
+            shuffle=True
         )
 
     # train a model, input is the enum of the model type
@@ -246,7 +253,7 @@ class BilinearActivator:
         ppp = []
         for epoch_num in range(self._epochs):
             # calc number of iteration in current epoch
-            for batch_index, (A, D, x0, l) in enumerate(self._train_loader):
+            for batch_index, (A, D, x0, l) in enumerate(self._balanced_train_loader):
                 # print progress
                 self._model.train()
 
@@ -260,7 +267,7 @@ class BilinearActivator:
                     self._model.zero_grad()                     # zero gradients
             self._print_progress(batch_index, len_data, job=TRAIN_JOB)
             # validate and print progress
-            self._validate(self._train_loader, job=TRAIN_JOB)
+            self._validate(self._unbalanced_train_loader, job=TRAIN_JOB)
             self._validate(self._dev_loader, job=DEV_JOB)
             self._validate(self._dev_loader, job=TEST_JOB)
             self._print_info(jobs=[TRAIN_JOB, DEV_JOB, TEST_JOB])

@@ -22,26 +22,6 @@ CENTRALITY = ["betweenness_centrality", FeatureMeta(BetweennessCentralityCalcula
 BFS = ["bfs_moments", FeatureMeta(BfsMomentsCalculator, {"bfs"})]
 
 
-class FactorLoss:
-    def __init__(self):
-        self._begin_low_limit = 0  # 0 .. 1
-        self._end_low_limit = 0.3  # 0.5 .. 1
-        self._interval = 1e-4
-
-        self._curr_start = self._begin_low_limit
-        self._curr_epoch = 0
-
-    def factor_loss(self, output, target, jump=False):
-        # scale = 1 - self._curr_start
-        # shift = 1 - scale
-        # loss = -((target * torch.log(output * scale + shift)) + ((1 - target) * torch.log((1 - output) * scale + shift)))
-        loss = -((target * torch.log(output)) + ((1 - target) * torch.log((1 - output))))
-
-        # if jump and self._curr_start + self._interval < self._end_low_limit:
-        #     self._curr_start = self._curr_start + self._interval
-        return loss
-
-
 class BilinearDatasetParams:
     def __init__(self):
         self.DATASET_NAME = "Refael_Binary_18_12"
@@ -65,24 +45,6 @@ class BilinearDatasetParams:
             else:
                 attr_str.append(attr + "_" + str(getattr(self, attr)))
         return "_".join(attr_str)
-
-# ------------------------------------------------------  REFAEL -------------------------------------------------------
-
-
-class RefaelDatasetParams(BilinearDatasetParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Refael_Binary_18_12"
-        self.DATASET_FILENAME = "Refael_18_12_18_Binary.csv"
-        self.SRC_COL = "SourceID"
-        self.DST_COL = "DestinationID"
-        self.GRAPH_NAME_COL = "Community"
-        self.LABEL_COL = "target"
-        self.PERCENTAGE = 1
-        self.DIRECTED = True
-# ----------------------------------------------------------------------------------------------------------------------
-
-
 # ------------------------------------------------------  AIDS ---------------------------------------------------------
 
 
@@ -112,37 +74,6 @@ class AidsDatasetTestParams(AidsDatasetTrainParams):
         super().__init__()
         self.DATASET_NAME = "AIDS_test"
         self.DATASET_FILENAME = "AIDS_test.csv"
-# ----------------------------------------------------------------------------------------------------------------------
-
-# ---------------------------------------------------  MUTAGEN ---------------------------------------------------------
-
-
-class MutagenDatasetTrainParams(BilinearDatasetParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Mutagenicity_train"
-        self.DATASET_FILENAME = "Mutagenicity_train.csv"
-        self.SRC_COL = "src"
-        self.DST_COL = "dst"
-        self.GRAPH_NAME_COL = "g_id"
-        self.LABEL_COL = "label"
-        self.PERCENTAGE = 1
-        self.DIRECTED = False
-        self.FEATURES = [DEG, CENTRALITY, BFS]
-
-
-class MutagenDatasetDevParams(AidsDatasetTrainParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Mutagenicity_dev"
-        self.DATASET_FILENAME = "Mutagenicity_dev.csv"
-
-
-class MutagenDatasetTestParams(AidsDatasetTrainParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Mutagenicity_test"
-        self.DATASET_FILENAME = "Mutagenicity_test.csv"
 # ----------------------------------------------------------------------------------------------------------------------
 
 
@@ -199,7 +130,6 @@ class LayeredBilinearModuleParams:
 
 class BilinearActivatorParams:
     def __init__(self):
-        f = FactorLoss()
         self.DEV_SPLIT = 0.2
         self.TEST_SPLIT = 0.6
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #
