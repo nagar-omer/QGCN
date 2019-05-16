@@ -42,6 +42,15 @@ class FactorLoss:
         return loss
 
 
+class ExternalDataParams:
+    def __init__(self):
+        self.GRAPH_COL = "g_id"
+        self.NODE_COL = "node"
+        self.FILE_NAME = "AIDS_external_data_train.csv"
+        self.EMBED_COLS = ["chem", "symbol"]
+        self.VALUE_COLS = ["charge", "x", "y"]
+
+
 class BilinearDatasetParams:
     def __init__(self):
         self.DATASET_NAME = "Refael_Binary_18_12"
@@ -66,85 +75,6 @@ class BilinearDatasetParams:
                 attr_str.append(attr + "_" + str(getattr(self, attr)))
         return "_".join(attr_str)
 
-# ------------------------------------------------------  REFAEL -------------------------------------------------------
-
-
-class RefaelDatasetParams(BilinearDatasetParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Refael_Binary_18_12"
-        self.DATASET_FILENAME = "Refael_18_12_18_Binary.csv"
-        self.SRC_COL = "SourceID"
-        self.DST_COL = "DestinationID"
-        self.GRAPH_NAME_COL = "Community"
-        self.LABEL_COL = "target"
-        self.PERCENTAGE = 1
-        self.DIRECTED = True
-# ----------------------------------------------------------------------------------------------------------------------
-
-
-# ------------------------------------------------------  AIDS ---------------------------------------------------------
-
-
-class AidsDatasetTrainParams(BilinearDatasetParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "AIDS_train"
-        self.DATASET_FILENAME = "AIDS_train.csv"
-        self.SRC_COL = "src"
-        self.DST_COL = "dst"
-        self.GRAPH_NAME_COL = "g_id"
-        self.LABEL_COL = "label"
-        self.PERCENTAGE = 1
-        self.DIRECTED = False
-        self.FEATURES = [DEG, CENTRALITY, BFS]
-
-
-class AidsDatasetDevParams(AidsDatasetTrainParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "AIDS_dev"
-        self.DATASET_FILENAME = "AIDS_dev.csv"
-
-
-class AidsDatasetTestParams(AidsDatasetTrainParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "AIDS_test"
-        self.DATASET_FILENAME = "AIDS_test.csv"
-# ----------------------------------------------------------------------------------------------------------------------
-
-# ---------------------------------------------------  MUTAGEN ---------------------------------------------------------
-
-
-class MutagenDatasetTrainParams(BilinearDatasetParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Mutagenicity_train"
-        self.DATASET_FILENAME = "Mutagenicity_train.csv"
-        self.SRC_COL = "src"
-        self.DST_COL = "dst"
-        self.GRAPH_NAME_COL = "g_id"
-        self.LABEL_COL = "label"
-        self.PERCENTAGE = 1
-        self.DIRECTED = False
-        self.FEATURES = [DEG, CENTRALITY, BFS]
-
-
-class MutagenDatasetDevParams(AidsDatasetTrainParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Mutagenicity_dev"
-        self.DATASET_FILENAME = "Mutagenicity_dev.csv"
-
-
-class MutagenDatasetTestParams(AidsDatasetTrainParams):
-    def __init__(self):
-        super().__init__()
-        self.DATASET_NAME = "Mutagenicity_test"
-        self.DATASET_FILENAME = "Mutagenicity_test.csv"
-# ----------------------------------------------------------------------------------------------------------------------
-
 
 class BilinearLayerParams:
     def __init__(self, in_col_dim, ftr_len):
@@ -153,29 +83,23 @@ class BilinearLayerParams:
         self.RIGHT_LINEAR_ROW_DIM = ftr_len     # should be equal to FirstLayerModelParams::ROW_DIM
         self.RIGHT_LINEAR_COL_DIM = 1           # out cols
         self.ACTIVATION_FUNC = sigmoid
+        self.ACTIVATION_FUNC_ARGS = {}
 
 
 class LinearLayerParams:
     def __init__(self, in_dim, out_dim, dropout=0.3):
-        self.NORM = NORM_REDUCED
         self.ROW_DIM = in_dim
         self.COL_DIM = out_dim
-        self.ACTIVATION_FUNC = relu
+        self.ACTIVATION_FUNC = tanh
         self.DROPOUT = dropout
 
 
-class BilinearModuleParams:
-    def __init__(self, ftr_len=6):
-        self.LINEAR_PARAMS = LinearLayerParams(in_dim=ftr_len, out_dim=50)
-        self.BILINEAR_PARAMS = BilinearLayerParams(self.LINEAR_PARAMS.COL_DIM, self.LINEAR_PARAMS.ROW_DIM)
-        self.LR = 1e-3
-        self.OPTIMIZER = Adam
-        self.WEIGHT_DECAY = 0
-
-
 class LayeredBilinearModuleParams:
-    def __init__(self, ftr_len=6, layer_dim=None):
-        self.DROPOUT = 0.1
+    def __init__(self, ftr_len=6, layer_dim=None, embed_vocab_dim=None):
+        self.EMBED_VOCAB_DIMS = embed_vocab_dim
+        self.EMBED_DIMS = []
+        self.NORM = NORM_REDUCED
+        self.DROPOUT = 0
         self.LR = 1e-3
         self.OPTIMIZER = Adam
         self.WEIGHT_DECAY = 0
@@ -190,7 +114,7 @@ class LayeredBilinearModuleParams:
             self.LINEAR_PARAMS_LIST = [
                 LinearLayerParams(in_dim=ftr_len, out_dim=50, dropout=self.DROPOUT),
                 LinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
-                LinearLayerParams(in_dim=100, out_dim=200, dropout=self.DROPOUT),
+                LinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
                 LinearLayerParams(in_dim=200, out_dim=1, dropout=self.DROPOUT)
             ]
         self.BILINEAR_PARAMS = BilinearLayerParams(self.LINEAR_PARAMS_LIST[self.NUM_LAYERS - 1].COL_DIM,
@@ -203,5 +127,6 @@ class BilinearActivatorParams:
         self.DEV_SPLIT = 0.2
         self.TEST_SPLIT = 0.6
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #
-        self.BATCH_SIZE = 4
+        self.BATCH_SIZE = 16
         self.EPOCHS = 250
+        self.DATASET = ""
