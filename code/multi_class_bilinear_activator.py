@@ -3,11 +3,11 @@ from sklearn.metrics import roc_auc_score
 from bilinear_model import LayeredBilinearModule
 from dataset.dataset import BilinearDataset
 from dataset.datset_sampler import ImbalancedDatasetSampler
-from params.parameters import BilinearActivatorParams, LayeredBilinearModuleParams
+from params.parameters import BilinearActivatorParams
 from bokeh.plotting import figure, show
-from torch.utils.data import DataLoader, random_split, SubsetRandomSampler
+from torch.utils.data import DataLoader, random_split
 from collections import Counter
-import numpy as np
+
 TRAIN_JOB = "TRAIN"
 DEV_JOB = "DEV"
 TEST_JOB = "TEST"
@@ -17,7 +17,7 @@ AUC_PLOT = "AUC"
 ACCURACY_PLOT = "accuracy"
 
 
-class BilinearActivator:
+class BilinearMultiClassActivator:
     def __init__(self, model: LayeredBilinearModule, params: BilinearActivatorParams, train_data: BilinearDataset,
                  dev_data: BilinearDataset = None, test_data: BilinearDataset = None):
         self._dataset = params.DATASET
@@ -26,6 +26,7 @@ class BilinearActivator:
         self._batch_size = params.BATCH_SIZE
         self._loss_func = params.LOSS
         self._load_data(train_data, dev_data, test_data, params.DEV_SPLIT, params.TEST_SPLIT)
+        self._classes = train_data.all_labels
         self._init_loss_and_acc_vec()
         self._init_print_att()
 
@@ -71,13 +72,19 @@ class BilinearActivator:
 
     # update accuracy after validating
     def _update_auc(self, pred, true, job=TRAIN_JOB):
-        pred_ = [-1 if np.isnan(x) else x for x in pred]
-        num_classes = len(Counter(true))
-        if num_classes < 2:
-            auc = 0.5
-        # calculate acc
-        else:
-            auc = roc_auc_score(true, pred_)
+        auc = 0
+        for curr_class in range(len(self._classes)):
+            single_class_true = [1 if t == curr_class else 0 for t in true]
+            single_class_pred = [p[curr_class] for p in pred]
+
+            num_classes = len(Counter(single_class_true))
+            if num_classes < 2:
+                auc += 0.5
+            # calculate acc
+            else:
+                auc += roc_auc_score(single_class_true, single_class_pred)
+        auc /= len(self._classes)
+
         if job == TRAIN_JOB:
             self._print_train_auc = auc
             self._auc_vec_train.append(auc)
@@ -94,8 +101,7 @@ class BilinearActivator:
     # update accuracy after validating
     def _update_accuracy(self, pred, true, job=TRAIN_JOB):
         # calculate acc
-        pred_ = [-1 if np.isnan(x) else x for x in pred]
-        acc = sum([1 if int(i) == int(j) else 0 for i, j in zip(pred_, true)]) / len(pred)
+        acc = sum([1 if int(i) == int(j) else 0 for i, j in zip(pred, true)]) / len(pred)
         if job == TRAIN_JOB:
             self._print_train_accuracy = acc
             self._accuracy_vec_train.append(acc)
@@ -210,45 +216,38 @@ class BilinearActivator:
         len_dev = 0 if dev_dataset else int(len(train_dataset) * dev_split)
         len_test = 0 if test_dataset else int(len(train_dataset) * test_split)
         len_train = len(train_dataset) - len_test - len_dev
-
         # split dataset
         train, dev, test = random_split(train_dataset, (len_train, len_dev, len_test))
+
+        dev = dev_dataset if dev_dataset else dev
+        test = test_dataset if test_dataset else test
 
         # set train loader
         self._balanced_train_loader = DataLoader(
             train.dataset,
             batch_size=1,
-            sampler=ImbalancedDatasetSampler(train.dataset, indices=train.indices.tolist(),
-                                             num_samples=len(train.indices.tolist()))
+            sampler=ImbalancedDatasetSampler(train.dataset)
             # shuffle=True
         )
         # set train loader
         self._unbalanced_train_loader = DataLoader(
             train.dataset,
             batch_size=1,
-            sampler=SubsetRandomSampler(train.indices.tolist())
+            # sampler=ImbalancedDatasetSampler(train.dataset)
             # shuffle=True
         )
-
         # set validation loader
         self._dev_loader = DataLoader(
-            dev_dataset,
+            dev,
             batch_size=1,
-        ) if dev_dataset else DataLoader(
-            train.dataset,
-            batch_size=1,
-            sampler=SubsetRandomSampler(dev.indices.tolist())
+            # sampler=ImbalancedDatasetSampler(dev)
             # shuffle=True
         )
-
-        # set test loader
+        # set train loader
         self._test_loader = DataLoader(
-            test_dataset,
+            test,
             batch_size=1,
-        ) if test_dataset else DataLoader(
-            train.dataset,
-            batch_size=1,
-            sampler=SubsetRandomSampler(test.indices.tolist())
+            # sampler=ImbalancedDatasetSampler(test)
             # shuffle=True
         )
 
@@ -257,26 +256,22 @@ class BilinearActivator:
         self._init_loss_and_acc_vec()
         # calc number of iteration in current epoch
         len_data = len(self._balanced_train_loader)
-        ppp = []
-        ttt = []
         for epoch_num in range(self._epochs):
             # calc number of iteration in current epoch
             for batch_index, (A, D, x0, embed, l) in enumerate(self._balanced_train_loader):
                 # print progress
                 self._model.train()
 
-                output = self._model(A, D, x0, embed)          # calc output of current model on the current batch
-                ppp.append(output.item())
-                ttt.append(l.item())
-                loss = self._loss_func(output.squeeze(dim=0), l.float())             # calculate loss
+                output = self._model(A, D, x0, embed)           # calc output of current model on the current batch
+                loss = self._loss_func(output, l)               # calculate loss
                 loss.backward()                                 # back propagation
 
                 if (batch_index + 1) % self._batch_size == 0 or (batch_index + 1) == len_data:  # batching
                     self._model.optimizer.step()                # update weights
                     self._model.zero_grad()                     # zero gradients
-                    ppp = []
-                    ttt = []
+
                 self._print_progress(batch_index, len_data, job=TRAIN_JOB)
+
             # validate and print progress
             self._validate(self._unbalanced_train_loader, job=TRAIN_JOB)
             self._validate(self._dev_loader, job=DEV_JOB)
@@ -292,7 +287,7 @@ class BilinearActivator:
         loss_count = 0
         true_labels = []
         pred_labels = []
-        pred = []
+        pred_auc_labels = []
 
         self._model.eval()
         # calc number of iteration in current epoch
@@ -302,25 +297,31 @@ class BilinearActivator:
             self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
             output = self._model(A, D, x0, embed)
             # calculate total loss
-            loss_count += self._loss_func(output.squeeze(dim=0), l.float())
+            loss_count += self._loss_func(output, l)
+
             true_labels.append(l.item())
-            pred_labels.append(output.round().item())
-            pred.append(output.item())
+            pred_labels.append(output.argmax().item())
+            pred_auc_labels.append(output.tolist()[0])
 
         # update loss accuracy
         loss = float(loss_count / len(data_loader))
         # pred_labels = [0 if np.isnan(i) else i for i in pred_labels]
         self._update_loss(loss, job=job)
         self._update_accuracy(pred_labels, true_labels, job=job)
-        self._update_auc(pred, true_labels, job=job)
+        self._update_auc(pred_auc_labels, true_labels, job=job)
         return loss
 
 
 if __name__ == '__main__':
-    from params.aids_params import AidsDatasetTrainParams, AidsDatasetDevParams, AidsDatasetTestParams
-    aids_train_ds = BilinearDataset(AidsDatasetTrainParams())
-    aids_dev_ds = BilinearDataset(AidsDatasetDevParams())
-    aids_test_ds = BilinearDataset(AidsDatasetTestParams())
-    activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(ftr_len=aids_train_ds.len_features)),
-                                  BilinearActivatorParams(), aids_train_ds, dev_data=aids_dev_ds, test_data=aids_test_ds)
-    activator.train()
+    pass
+    # ds = BilinearDataset(RefaelDatasetParams())
+    # activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(ftr_len=ds.len_features)),
+    #                               BilinearActivatorParams(), BilinearDataset(RefaelDatasetParams()))
+    # protein_train_ds = BilinearDataset(ProteinDatasetTrainParams())
+    # protein_dev_ds = BilinearDataset(ProteinDatasetDevParams())
+    # protein_test_ds = BilinearDataset(ProteinDatasetTestParams())
+    # activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(
+    #     ftr_len=protein_train_ds.len_features)), BilinearActivatorParams(), protein_train_ds,
+    #     dev_data=protein_dev_ds, test_data=protein_test_ds)
+    #
+    # activator.train()

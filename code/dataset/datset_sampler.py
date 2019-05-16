@@ -1,6 +1,6 @@
 from torch import multinomial, Tensor
 from torch.utils.data import Sampler
-from dataset import BilinearDataset
+from dataset.dataset import BilinearDataset
 
 
 class ImbalancedDatasetSampler(Sampler):

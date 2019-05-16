@@ -4,9 +4,9 @@ import ast
 from torch.optim import Adam, SGD
 from bilinear_activator import BilinearActivator
 from bilinear_model import LayeredBilinearModule
-from parameters import RefaelDatasetParams, LayeredBilinearModuleParams, BilinearActivatorParams, BFS, CENTRALITY, \
+from params.parameters import RefaelDatasetParams, LayeredBilinearModuleParams, BilinearActivatorParams, BFS, CENTRALITY, \
     OUT_DEG, IN_DEG, DEG
-from dataset import BilinearDataset
+from dataset.dataset import BilinearDataset
 from itertools import product
 import csv
 import numpy as np
