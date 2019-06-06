@@ -14,11 +14,11 @@ from params.parameters import BilinearDatasetParams, BilinearActivatorParams, Bi
 # ------------------------------------------------------  REFAEL -------------------------------------------------------
 
 
-class RefaelDatasetParams(BilinearDatasetParams):
+class YanivDatasetParams(BilinearDatasetParams):
     def __init__(self):
         super().__init__()
-        self.DATASET_NAME = "Refael_Binary_18_12"
-        self.DATASET_FILENAME = "Refael_18_12_18_Binary.csv"
+        self.DATASET_NAME = "Yaniv_Binary_18_12"
+        self.DATASET_FILENAME = "Yaniv_18_12_18_Binary.csv"
         self.SRC_COL = "SourceID"
         self.DST_COL = "DestinationID"
         self.GRAPH_NAME_COL = "Community"
@@ -28,7 +28,7 @@ class RefaelDatasetParams(BilinearDatasetParams):
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-class RefaelBilinearLayerParams(BilinearLayerParams):
+class YanivBilinearLayerParams(BilinearLayerParams):
     def __init__(self, in_col_dim, ftr_len):
         super().__init__(in_col_dim, ftr_len)
         self.LEFT_LINEAR_ROW_DIM = in_col_dim   # should be equal to RIGHT_LINEAR_IN and FirstLayerModelParams::OUT_DIM
@@ -39,7 +39,7 @@ class RefaelBilinearLayerParams(BilinearLayerParams):
         self.ACTIVATION_FUNC_ARGS = {}
 
 
-class RefaelLinearLayerParams(LinearLayerParams):
+class YanivLinearLayerParams(LinearLayerParams):
     def __init__(self, in_dim, out_dim, dropout=0.3):
         super().__init__(in_dim, out_dim, dropout)
         self.ROW_DIM = in_dim
@@ -48,7 +48,7 @@ class RefaelLinearLayerParams(LinearLayerParams):
         self.DROPOUT = dropout
 
 
-class RefaelLayeredBilinearModuleParams(LayeredBilinearModuleParams):
+class YanivLayeredBilinearModuleParams(LayeredBilinearModuleParams):
     def __init__(self, ftr_len=6, layer_dim=None, embed_vocab_dim=None):
         super().__init__(ftr_len, layer_dim, embed_vocab_dim)
         self.NORM = NORM_REDUCED
@@ -59,16 +59,16 @@ class RefaelLayeredBilinearModuleParams(LayeredBilinearModuleParams):
 
         self.NUM_LAYERS = 2
         self.LINEAR_PARAMS_LIST = [
-            RefaelLinearLayerParams(in_dim=ftr_len, out_dim=50, dropout=self.DROPOUT),
-            RefaelLinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
-            RefaelLinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
-            RefaelLinearLayerParams(in_dim=200, out_dim=1, dropout=self.DROPOUT)
+            YanivLinearLayerParams(in_dim=ftr_len, out_dim=50, dropout=self.DROPOUT),
+            YanivLinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
+            YanivLinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
+            YanivLinearLayerParams(in_dim=200, out_dim=1, dropout=self.DROPOUT)
         ]
-        self.BILINEAR_PARAMS = RefaelBilinearLayerParams(self.LINEAR_PARAMS_LIST[self.NUM_LAYERS - 1].COL_DIM,
+        self.BILINEAR_PARAMS = YanivBilinearLayerParams(self.LINEAR_PARAMS_LIST[self.NUM_LAYERS - 1].COL_DIM,
                                                          self.LINEAR_PARAMS_LIST[0].ROW_DIM)
 
 
-class RefaelBilinearActivatorParams(BilinearActivatorParams):
+class YanivBilinearActivatorParams(BilinearActivatorParams):
     def __init__(self):
         super().__init__()
         self.DEV_SPLIT = 0.15
@@ -79,7 +79,7 @@ class RefaelBilinearActivatorParams(BilinearActivatorParams):
 
 
 if __name__ == '__main__':
-    refael_train_ds = BilinearDataset(RefaelDatasetParams())
-    activator = BilinearActivator(LayeredBilinearModule(RefaelLayeredBilinearModuleParams(ftr_len=refael_train_ds.len_features)),
-                                  RefaelBilinearActivatorParams(), refael_train_ds)
+    refael_train_ds = BilinearDataset(YanivDatasetParams())
+    activator = BilinearActivator(LayeredBilinearModule(YanivLayeredBilinearModuleParams(ftr_len=refael_train_ds.len_features)),
+                                  YanivBilinearActivatorParams(), refael_train_ds)
     activator.train()

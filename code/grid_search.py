@@ -1,74 +1,116 @@
+import sys
 import os
+
+from bilinear_model import LayeredBilinearModule
+
+sys.path.insert(0, os.path.join("..", "..", "graph-measures"))
+sys.path.insert(0, os.path.join("..", "..", "graph-measures", "features_algorithms"))
+sys.path.insert(0, os.path.join("..", "..", "graph-measures", "graph_infra"))
+sys.path.insert(0, os.path.join("..", "..", "graph-measures", "features_infra"))
+sys.path.insert(0, os.path.join("..", "..", "graph-measures", "features_meta"))
+sys.path.insert(0, os.path.join("..", "..", "graph-measures", "features_algorithms", "vertices"))
+sys.path.insert(0, os.path.join("..", "..", "graphs-package", "features_processor"))
+sys.path.insert(0, os.path.join("..", "..", "graphs-package", "multi_graph"))
+sys.path.insert(0, os.path.join("..", "..", "graphs-package", "temporal_graphs"))
+sys.path.insert(0, os.path.join("..", "..", "graphs-package", "features_processor", "motif_variations"))
+sys.path.insert(0, os.path.join("..", "..", "graphs-package"))
+
 from time import strftime, gmtime
 import ast
 from torch.optim import Adam, SGD
 from bilinear_activator import BilinearActivator
-from bilinear_model import LayeredBilinearModule
-from params.parameters import RefaelDatasetParams, LayeredBilinearModuleParams, BilinearActivatorParams, BFS, CENTRALITY, \
+from dataset.dataset_external_data import ExternalData
+from multi_class_bilinear_activator import BilinearMultiClassActivator
+from params.aids_params import AidsDatasetAllParams, AidsLayeredBilinearModuleParams, AidsBilinearActivatorParams, \
+    AidsAllExternalDataParams
+from params.coil_del_params import CoilDelDatasetAllParams, CoilDelLayeredBilinearModuleParams, \
+    CoilDelBilinearActivatorParams, CoilDelAllExternalDataParams
+from params.grec_params import GrecDatasetAllParams, GrecAllExternalDataParams, GrecLayeredBilinearModuleParams, \
+    GrecBilinearActivatorParams
+from params.mutagen_params import MutagenDatasetAllParams, MutagenLayeredBilinearModuleParams, \
+    MutagenBilinearActivatorParams, MutagenAllExternalDataParams
+from params.parameters import LayeredBilinearModuleParams, BilinearActivatorParams, BFS, CENTRALITY, \
     OUT_DEG, IN_DEG, DEG
 from dataset.dataset import BilinearDataset
 from itertools import product
 import csv
 import numpy as np
 
+from params.protein_params import ProteinDatasetAllParams, ProteinAllExternalDataParams, \
+    ProteinLayeredBilinearModuleParams, ProteinBilinearActivatorParams
+from params.web_params import WebDatasetAllParams, WebAllExternalDataParams, WebLayeredBilinearModuleParams, \
+    WebBilinearActivatorParams
+
 
 class GridSearch:
-    def __init__(self):
+    def __init__(self, dataset_param_class, module_param_class, activator_param_class, ext_data, multi_class=False,
+                 layers=None):
+        self._dataset_param_class = dataset_param_class
+        self._module_param_class = module_param_class
+        self._activator_param_class = activator_param_class
+        self._layers = layers
+        self._ext_data = ext_data
+        self._is_multi_class = multi_class
         pass
 
     def _all_configurations(self):
         """
         set grid parameters here
         """
-        data_split = [0.5, 0.75, 1]
+
+        data_split = [1]
+        input_vec = [[DEG, CENTRALITY, BFS]]
+        batch_size = [16]
         optimizer = [Adam, SGD]
-        lrs = [1e-3, 1e-2, 1e-1, 1]
-        dropout = [0, 0.1, 0.2, 0.3, 0.4]
-        regularization = [0]
-        input_vec = [[DEG], [IN_DEG, OUT_DEG], [DEG, IN_DEG, OUT_DEG, CENTRALITY, BFS]]
-        layers_config = [[[None, 10]], [[None, 30], [30, 10]], [[None, 30], [30, 50], [50, 10]]]
-        batch_size = [2, 4, 8, 16]
+        lrs = [1e-3, 1e-1, 1]
+        dropout = [0, 0.1, 0.15]
+        regularization = [0, 1e-2, 1e-3, 1e-4]
+        layers_config = [[[None, 50], [50, 25]], [[None, 100], [100, 50], [50, 25]]] if self._layers is None else self._layers
 
         configurations = list(product(*[data_split, optimizer, lrs, dropout, regularization, input_vec, layers_config,
                                         batch_size]))
 
         # prepare param objects
         for split, optimizer, lr, dropout, regularization, input_vec, layers_config, batch_size in configurations:
-            # str for configuration
-            config_str = "|".join([str(split), str(optimizer), str(lr), str(dropout), str(regularization),
-                                   str(input_vec), str(layers_config), str(batch_size)])
-            # dataset
-            ds_params = RefaelDatasetParams()
-            ds_params.FEATURES = input_vec
-            ds_params.PERCENTAGE = split
-            dataset = BilinearDataset(ds_params)
+            for _ in range(2):
+                # str for configuration
+                config_str = "|".join([str(split), str(optimizer), str(lr), str(dropout), str(regularization),
+                                       str(input_vec), str(layers_config), str(batch_size)])
+                # dataset
+                ds_params = self._dataset_param_class()
 
-            # model
-            model_params = LayeredBilinearModuleParams(ftr_len=dataset.len_features, layer_dim=layers_config)
-            model_params.DROPOUT = dropout
-            model_params.WEIGHT_DECAY = regularization
-            model_params.LR = lr
-            model_params.OPTIMIZER = optimizer
+                ds_params.FEATURES = input_vec
+                ds_params.PERCENTAGE = split
+                dataset = BilinearDataset(ds_params, external_data=self._ext_data)
 
-            # activator
-            activator_params = BilinearActivatorParams()
-            activator_params.BATCH_SIZE = batch_size
-            yield dataset, model_params, activator_params, config_str
+                # model
+                model_params = self._module_param_class(ftr_len=dataset.len_features, layer_dim=layers_config,
+                                                        embed_vocab_dim=self._ext_data.len_embed())
+                model_params.DROPOUT = dropout
+                model_params.WEIGHT_DECAY = regularization
+                model_params.LR = lr
+                model_params.OPTIMIZER = optimizer
+
+                # activator
+                activator_params = self._activator_param_class()
+                activator_params.BATCH_SIZE = batch_size
+                yield dataset, model_params, activator_params, config_str
 
     def _check_configuration(self, dataset: BilinearDataset, model_params: LayeredBilinearModuleParams,
                              activator_params: BilinearActivatorParams):
 
         model = LayeredBilinearModule(model_params)
-        activator = BilinearActivator(model, activator_params, dataset)
+        activator = BilinearMultiClassActivator(model, activator_params, dataset) \
+            if self._is_multi_class else BilinearActivator(model, activator_params, dataset)
         activator.train(show_plot=False)
 
         return activator.accuracy_train_vec, activator.auc_train_vec, activator.loss_train_vec, \
                activator.accuracy_dev_vec, activator.auc_dev_vec, activator.loss_dev_vec, \
                activator.accuracy_test_vec, activator.auc_test_vec, activator.loss_test_vec
 
-    def go(self):
+    def go(self, name=""):
         time = strftime("%m%d%H%M%S", gmtime())
-        out_res = open(os.path.join("grid_results", "grid_" + time + ".txt"), "wt")
+        out_res = open(os.path.join("grid_results", "grid_" + time + name + ".txt"), "wt")
         out_res.write("line0: config, line1: acc_train, line2: auc_train, line3: loss_train, line4: acc_dev, "
                       "line5: auc_dev, line6: loss_dev, line7: acc_test, line8: auc_test, line9: loss_test\n")
         for dataset, model_params, activator_params, config_str in self._all_configurations():
@@ -144,7 +186,38 @@ class GridSearch:
 
 
 if __name__ == "__main__":
-    # GridSearch().go()
-    GridSearch().parse(0)
+    # n = int(sys.argv[1])
+    n = 0
+
+    if n == 0:
+        GridSearch(AidsDatasetAllParams, AidsLayeredBilinearModuleParams, AidsBilinearActivatorParams,
+                   ExternalData(AidsAllExternalDataParams()), multi_class=False).go("_Aids")
+    #
+    # elif n == 1:
+    #     GridSearch(WebDatasetAllParams, WebLayeredBilinearModuleParams, WebBilinearActivatorParams,
+    #                ExternalData(WebAllExternalDataParams()), multi_class=True,
+    #                layers=[[[None, 50], [50, 25]], [[None, 200], [200, 100], [100, 50]]]).go("_Web")
+    #
+    # elif n == 2:
+    #     GridSearch(MutagenDatasetAllParams, MutagenLayeredBilinearModuleParams, MutagenBilinearActivatorParams,
+    #                ExternalData(MutagenAllExternalDataParams()), multi_class=False).go("_Mutagen")
+    #
+    # elif n == 3:
+    #     GridSearch(ProteinDatasetAllParams, ProteinLayeredBilinearModuleParams, ProteinBilinearActivatorParams,
+    #                ExternalData(ProteinAllExternalDataParams()), multi_class=True,
+    #                layers=[[[None, 25], [50, 25]], [[None, 100], [100, 50], [50, 25]]]).go("_Protein")
+    #
+    # # elif n == 4:
+    # #     GridSearch(GrecDatasetAllParams, GrecLayeredBilinearModuleParams, GrecBilinearActivatorParams,
+    # #                ExternalData(GrecAllExternalDataParams()), multi_class=True,
+    # #                layers=[[[None, 50], [50, 25]], [[None, 100], [100, 50], [50, 25]]]).go("_Grec")
+    #
+    # elif n == 5:
+    #     GridSearch(CoilDelDatasetAllParams, CoilDelLayeredBilinearModuleParams, CoilDelBilinearActivatorParams,
+    #                ExternalData(CoilDelAllExternalDataParams()), multi_class=True,
+    #                layers=[[[None, 250], [500, 250]], [[None, 500], [500, 300], [300, 250]]]).go("_Coil_Del")
+
+    # GridSearch(AidsDatasetAllParams, AidsLayeredBilinearModuleParams, AidsBilinearActivatorParams,
+    #                ExternalData(AidsAllExternalDataParams())).parse("grid_0516160231_Aids.txt")
 
 

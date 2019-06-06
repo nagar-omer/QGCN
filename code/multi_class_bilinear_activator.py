@@ -1,12 +1,18 @@
 from sys import stdout
+
+import torch
 from sklearn.metrics import roc_auc_score
+
+from bilinear_activator import BilinearActivator
 from bilinear_model import LayeredBilinearModule
 from dataset.dataset import BilinearDataset
 from dataset.datset_sampler import ImbalancedDatasetSampler
-from params.parameters import BilinearActivatorParams
+from params.parameters import BilinearActivatorParams, LayeredBilinearModuleParams
 from bokeh.plotting import figure, show
 from torch.utils.data import DataLoader, random_split
 from collections import Counter
+
+from params.yaniv_params import YanivDatasetParams
 
 TRAIN_JOB = "TRAIN"
 DEV_JOB = "DEV"
@@ -20,6 +26,9 @@ ACCURACY_PLOT = "accuracy"
 class BilinearMultiClassActivator:
     def __init__(self, model: LayeredBilinearModule, params: BilinearActivatorParams, train_data: BilinearDataset,
                  dev_data: BilinearDataset = None, test_data: BilinearDataset = None):
+        self._dataset = params.DATASET
+        self._gpu = torch.cuda.is_available()
+        self._device = torch.device("cuda: 1" if self._gpu else "cpu")
         self._dataset = params.DATASET
         self._model = model
         self._epochs = params.EPOCHS
@@ -257,8 +266,11 @@ class BilinearMultiClassActivator:
         # calc number of iteration in current epoch
         len_data = len(self._balanced_train_loader)
         for epoch_num in range(self._epochs):
+            print("epoch" + str(epoch_num))
             # calc number of iteration in current epoch
             for batch_index, (A, D, x0, embed, l) in enumerate(self._balanced_train_loader):
+                if self._gpu:
+                    A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
                 # print progress
                 self._model.train()
 
@@ -293,6 +305,8 @@ class BilinearMultiClassActivator:
         # calc number of iteration in current epoch
         len_data = len(data_loader)
         for batch_index, (A, D, x0, embed, l) in enumerate(data_loader):
+            if self._gpu:
+                A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
             # print progress
             self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
             output = self._model(A, D, x0, embed)
@@ -313,15 +327,14 @@ class BilinearMultiClassActivator:
 
 
 if __name__ == '__main__':
-    pass
-    # ds = BilinearDataset(RefaelDatasetParams())
-    # activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(ftr_len=ds.len_features)),
-    #                               BilinearActivatorParams(), BilinearDataset(RefaelDatasetParams()))
+    ds = BilinearDataset(YanivDatasetParams())
+    activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(ftr_len=ds.len_features)),
+                                  BilinearActivatorParams(), BilinearDataset(YanivDatasetParams()))
     # protein_train_ds = BilinearDataset(ProteinDatasetTrainParams())
     # protein_dev_ds = BilinearDataset(ProteinDatasetDevParams())
     # protein_test_ds = BilinearDataset(ProteinDatasetTestParams())
-    # activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(
+    # _activator = BilinearActivator(LayeredBilinearModule(LayeredBilinearModuleParams(
     #     ftr_len=protein_train_ds.len_features)), BilinearActivatorParams(), protein_train_ds,
     #     dev_data=protein_dev_ds, test_data=protein_test_ds)
-    #
-    # activator.train()
+
+    activator.train()

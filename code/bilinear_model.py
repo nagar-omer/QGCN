@@ -1,8 +1,7 @@
-from torch.nn import Module, Linear, Dropout, Embedding, Container, ModuleList
+from torch.nn import Module, Linear, Dropout, Embedding, ModuleList
 import torch
 from params.parameters import LinearLayerParams, BilinearLayerParams, NORM_REDUCED, \
     NORM_REDUCED_SYMMETRIC, LayeredBilinearModuleParams
-import numpy as np
 
 """
 given A, x0 : A=Adjacency_matrix, x0=nodes_vec
@@ -18,12 +17,23 @@ class LinearLayer(Module):
         self._linear = Linear(params.ROW_DIM, params.COL_DIM)
         self._activation = params.ACTIVATION_FUNC
         self._dropout = Dropout(p=params.DROPOUT) if params.DROPOUT else None
+        self._gpu = False
+
+    def gpu_device(self, is_gpu: bool):
+        self._gpu = is_gpu
+
+    def _sync(self):
+        if self._gpu:
+            torch.cuda.synchronize()
 
     def forward(self, A, x0):
         # Dropout layer
         x0 = self._dropout(x0) if self._dropout else x0
         # tanh( A(n x n) * x0(n x d) * W1(d x k) )
-        x = self._linear(torch.mm(A[0, :, :], x0[0, :, :]))
+        Ax = torch.mm(A[0, :, :], x0[0, :, :])
+        self._sync()
+
+        x = self._linear(Ax)
         x1 = self._activation(x)
         return x1.unsqueeze(dim=0)
 
@@ -36,12 +46,22 @@ class BilinearLayer(Module):
         self._right_linear = Linear(params.RIGHT_LINEAR_ROW_DIM, params.RIGHT_LINEAR_COL_DIM)
         self._activation = params.ACTIVATION_FUNC
         self._activation_args = params.ACTIVATION_FUNC_ARGS
+        self._gpu = False
+
+    def gpu_device(self, is_gpu: bool):
+        self._gpu = is_gpu
+
+    def _sync(self):
+        if self._gpu:
+            torch.cuda.synchronize()
 
     def forward(self, A, x0, x1):
         # sigmoid( W2(1 x k) * trans(x1)(k x n) * A(n x n) * x0(n x d) * W1(d x 1) )
         x1_A = torch.mm(torch.t(x1[0, :, :]), A[0, :, :])
+        self._sync()
         W2_x1_A = self._left_linear(torch.t(x1_A))
         W2_x1_A_x0 = torch.mm(torch.t(W2_x1_A), x0[0, :, :])
+        self._sync()
         W2_x1_A_x0_W3 = self._right_linear(W2_x1_A_x0)
         x2 = self._activation(W2_x1_A_x0_W3, **self._activation_args)
         return x2
@@ -51,6 +71,7 @@ class LayeredBilinearModule(Module):
     """
     first linear layer is executed numerous times
     """
+
     def __init__(self, params: LayeredBilinearModuleParams):
         super(LayeredBilinearModule, self).__init__()
 
@@ -73,9 +94,22 @@ class LayeredBilinearModule(Module):
         # create linear layers
         for i in range(params.NUM_LAYERS):
             self._linear_layers.append(LinearLayer(params.LINEAR_PARAMS_LIST[i]))
+        self._linear_layers = ModuleList(self._linear_layers)
 
         self._bilinear_layer = BilinearLayer(params.BILINEAR_PARAMS)
         self.optimizer = self.set_optimizer(params.LR, params.OPTIMIZER, params.WEIGHT_DECAY)
+
+        self._gpu = False
+
+    def gpu_device(self, is_gpu: bool):
+        self._gpu = is_gpu
+        for layer in self._linear_layers:
+            layer.gpu_device(is_gpu)
+        self._bilinear_layer.gpu_device(is_gpu)
+
+    def _sync(self):
+        if self._gpu:
+            torch.cuda.synchronize()
 
     def set_optimizer(self, lr, opt, weight_decay):
         return opt(self.parameters(), lr=lr, weight_decay=weight_decay)
@@ -84,7 +118,6 @@ class LayeredBilinearModule(Module):
         return input if len(input.shape) == 3 else input.unsqueeze(dim=0)
 
     def forward(self, A, D, x0, embed):
-
         if self._is_embed:
             list_embed = []
             for i, embedding in enumerate(self._embed_layers):
@@ -94,17 +127,23 @@ class LayeredBilinearModule(Module):
         # A, D, x0 = self._fix_shape(A), self._fix_shape(D), self._fix_shape(x0)
         if self._norm == NORM_REDUCED:
             # D^-0.5 A D^-0.5
-            D_squrt = np.power(D[0, :, :], np.ones((D.shape[1], D.shape[2])) - np.identity(D.shape[1]) * -1.5).float()
+            D_squrt = torch.sqrt(D[0, :, :]).float()
+            self._sync()
             AD = torch.mm(A[0, :, :], D_squrt)
+            self._sync()
             DAD = torch.mm(D_squrt, AD)
+            self._sync()
             Adj = DAD.unsqueeze(dim=0)
+            self._sync()
         if self._norm == NORM_REDUCED_SYMMETRIC:
             # D^-0.5 [A + A.T + I] D^-0.5
             pass
-        else:       # no normalization
+        else:  # no normalization
             Adj = A
+            self._sync()
 
         x1 = x0.clone()
+        self._sync()
         for i in range(self._num_layers):
             x1 = self._linear_layers[i](Adj, x1)
         x2 = self._bilinear_layer(Adj, x0, x1)
@@ -112,9 +151,7 @@ class LayeredBilinearModule(Module):
 
 
 if __name__ == "__main__":
-    from dataset.dataset import RefaelDataset
-    from torch.utils.data import DataLoader
-    from params.parameters import RefaelDatasetParams
+
     ds = RefaelDataset(RefaelDatasetParams())
     dl = DataLoader(
         dataset=ds,

@@ -74,8 +74,8 @@ class WebLayeredBilinearModuleParams(LayeredBilinearModuleParams):
             self.NUM_LAYERS = 2
             self.LINEAR_PARAMS_LIST = [
                 WebLinearLayerParams(in_dim=ftr_len, out_dim=50, dropout=self.DROPOUT),
-                WebLinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
-                WebLinearLayerParams(in_dim=50, out_dim=10, dropout=self.DROPOUT),
+                WebLinearLayerParams(in_dim=50, out_dim=25, dropout=self.DROPOUT),
+                WebLinearLayerParams(in_dim=100, out_dim=50, dropout=self.DROPOUT),
                 WebLinearLayerParams(in_dim=200, out_dim=1, dropout=self.DROPOUT)
             ]
         self.BILINEAR_PARAMS = WebBilinearLayerParams(self.LINEAR_PARAMS_LIST[self.NUM_LAYERS - 1].COL_DIM,

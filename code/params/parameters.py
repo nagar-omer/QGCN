@@ -54,7 +54,7 @@ class ExternalDataParams:
 class BilinearDatasetParams:
     def __init__(self):
         self.DATASET_NAME = "Refael_Binary_18_12"
-        self.DATASET_FILENAME = "Refael_18_12_18_Binary.csv"
+        self.DATASET_FILENAME = "Yaniv_18_12_18_Binary.csv"
         self.SRC_COL = "SourceID"
         self.DST_COL = "DestinationID"
         self.GRAPH_NAME_COL = "Community"
@@ -123,7 +123,6 @@ class LayeredBilinearModuleParams:
 
 class BilinearActivatorParams:
     def __init__(self):
-        f = FactorLoss()
         self.DEV_SPLIT = 0.2
         self.TEST_SPLIT = 0.6
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #

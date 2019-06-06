@@ -1,4 +1,6 @@
 from sys import stdout
+
+import torch
 from sklearn.metrics import roc_auc_score
 from bilinear_model import LayeredBilinearModule
 from dataset.dataset import BilinearDataset
@@ -21,6 +23,8 @@ class BilinearActivator:
     def __init__(self, model: LayeredBilinearModule, params: BilinearActivatorParams, train_data: BilinearDataset,
                  dev_data: BilinearDataset = None, test_data: BilinearDataset = None):
         self._dataset = params.DATASET
+        self._gpu = torch.cuda.is_available()
+        self._device = torch.device("cuda: 1" if self._gpu else "cpu")
         self._model = model
         self._epochs = params.EPOCHS
         self._batch_size = params.BATCH_SIZE
@@ -35,6 +39,7 @@ class BilinearActivator:
         self._loss_vec_dev = []
         self._loss_vec_test = []
 
+        self._bar = 0.5
         self._accuracy_vec_train = []
         self._accuracy_vec_dev = []
         self._accuracy_vec_test = []
@@ -94,13 +99,23 @@ class BilinearActivator:
     # update accuracy after validating
     def _update_accuracy(self, pred, true, job=TRAIN_JOB):
         # calculate acc
-        pred_ = [-1 if np.isnan(x) else x for x in pred]
-        acc = sum([1 if int(i) == int(j) else 0 for i, j in zip(pred_, true)]) / len(pred)
         if job == TRAIN_JOB:
-            self._print_train_accuracy = acc
-            self._accuracy_vec_train.append(acc)
-            return acc
-        elif job == DEV_JOB:
+            max_acc = 0
+            best_bar = self._bar
+            for bar in [i * 0.01 for i in range(100)]:
+                acc = sum([1 if (0 if i < bar else 1) == int(j) else 0 for i, j in zip(pred, true)]) / len(pred)
+                if acc > max_acc:
+                    best_bar = bar
+                    max_acc = acc
+            self._bar = best_bar
+
+            self._print_train_accuracy = max_acc
+            self._accuracy_vec_train.append(max_acc)
+            return max_acc
+
+        acc = sum([1 if (0 if i < self._bar else 1) == int(j) else 0 for i, j in zip(pred, true)]) / len(pred)
+
+        if job == DEV_JOB:
             self._print_dev_accuracy = acc
             self._accuracy_vec_dev.append(acc)
             return acc
@@ -260,8 +275,11 @@ class BilinearActivator:
         ppp = []
         ttt = []
         for epoch_num in range(self._epochs):
+            print("epoch" + str(epoch_num))
             # calc number of iteration in current epoch
             for batch_index, (A, D, x0, embed, l) in enumerate(self._balanced_train_loader):
+                if self._gpu:
+                    A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
                 # print progress
                 self._model.train()
 
@@ -291,27 +309,27 @@ class BilinearActivator:
         # for calculating total loss and accuracy
         loss_count = 0
         true_labels = []
-        pred_labels = []
         pred = []
 
         self._model.eval()
         # calc number of iteration in current epoch
         len_data = len(data_loader)
         for batch_index, (A, D, x0, embed, l) in enumerate(data_loader):
+            if self._gpu:
+                A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
             # print progress
             self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
             output = self._model(A, D, x0, embed)
             # calculate total loss
             loss_count += self._loss_func(output.squeeze(dim=0), l.float())
             true_labels.append(l.item())
-            pred_labels.append(output.round().item())
             pred.append(output.item())
 
         # update loss accuracy
         loss = float(loss_count / len(data_loader))
         # pred_labels = [0 if np.isnan(i) else i for i in pred_labels]
         self._update_loss(loss, job=job)
-        self._update_accuracy(pred_labels, true_labels, job=job)
+        self._update_accuracy(pred, true_labels, job=job)
         self._update_auc(pred, true_labels, job=job)
         return loss
 
