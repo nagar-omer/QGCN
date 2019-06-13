@@ -53,7 +53,8 @@ class ExternalDataParams:
 
 class BilinearDatasetParams:
     def __init__(self):
-        self.DATASET_NAME = "Refael_Binary_18_12"
+        self.NORM = NORM_REDUCED
+        self.DATASET_NAME = "Yaniv_Binary_18_12"
         self.DATASET_FILENAME = "Yaniv_18_12_18_Binary.csv"
         self.SRC_COL = "SourceID"
         self.DST_COL = "DestinationID"
@@ -98,7 +99,6 @@ class LayeredBilinearModuleParams:
     def __init__(self, ftr_len=6, layer_dim=None, embed_vocab_dim=None):
         self.EMBED_VOCAB_DIMS = embed_vocab_dim
         self.EMBED_DIMS = []
-        self.NORM = NORM_REDUCED
         self.DROPOUT = 0
         self.LR = 1e-3
         self.OPTIMIZER = Adam
@@ -126,6 +126,6 @@ class BilinearActivatorParams:
         self.DEV_SPLIT = 0.2
         self.TEST_SPLIT = 0.6
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #
-        self.BATCH_SIZE = 16
+        self.BATCH_SIZE = 64
         self.EPOCHS = 250
         self.DATASET = ""

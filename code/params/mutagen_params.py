@@ -7,7 +7,7 @@ from betweenness_centrality import BetweennessCentralityCalculator
 from bfs_moments import BfsMomentsCalculator
 from bilinear_activator import BilinearActivator
 from bilinear_model import LayeredBilinearModule
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from dataset.dataset_external_data import ExternalData
 from feature_calculators import FeatureMeta
 from params.parameters import BilinearLayerParams, LinearLayerParams, LayeredBilinearModuleParams, \
@@ -127,8 +127,8 @@ class MutagenLayeredBilinearModuleParams(LayeredBilinearModuleParams):
 class MutagenBilinearActivatorParams(BilinearActivatorParams):
     def __init__(self):
         super().__init__()
-        self.DEV_SPLIT = 0.2
-        self.TEST_SPLIT = 0.2
+        self.DEV_SPLIT = 0.125
+        self.TEST_SPLIT = 0.75
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #
         self.BATCH_SIZE = 16
         self.EPOCHS = 400

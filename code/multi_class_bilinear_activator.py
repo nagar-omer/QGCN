@@ -5,7 +5,7 @@ from sklearn.metrics import roc_auc_score
 
 from bilinear_activator import BilinearActivator
 from bilinear_model import LayeredBilinearModule
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from dataset.datset_sampler import ImbalancedDatasetSampler
 from params.parameters import BilinearActivatorParams, LayeredBilinearModuleParams
 from bokeh.plotting import figure, show
@@ -34,7 +34,7 @@ class BilinearMultiClassActivator:
         self._epochs = params.EPOCHS
         self._batch_size = params.BATCH_SIZE
         self._loss_func = params.LOSS
-        self._load_data(train_data, dev_data, test_data, params.DEV_SPLIT, params.TEST_SPLIT)
+        self._load_data(train_data, dev_data, test_data, params.DEV_SPLIT, params.TEST_SPLIT, params.BATCH_SIZE)
         self._classes = train_data.all_labels
         self._init_loss_and_acc_vec()
         self._init_print_att()
@@ -220,7 +220,7 @@ class BilinearMultiClassActivator:
         return self._auc_vec_test
 
     # load dataset
-    def _load_data(self, train_dataset, dev_dataset, test_dataset, dev_split, test_split):
+    def _load_data(self, train_dataset, dev_dataset, test_dataset, dev_split, test_split, batch_size):
         # calculate lengths off train and dev according to split ~ (0,1)
         len_dev = 0 if dev_dataset else int(len(train_dataset) * dev_split)
         len_test = 0 if test_dataset else int(len(train_dataset) * test_split)
@@ -228,36 +228,44 @@ class BilinearMultiClassActivator:
         # split dataset
         train, dev, test = random_split(train_dataset, (len_train, len_dev, len_test))
 
-        dev = dev_dataset if dev_dataset else dev
-        test = test_dataset if test_dataset else test
-
         # set train loader
         self._balanced_train_loader = DataLoader(
             train.dataset,
-            batch_size=1,
-            sampler=ImbalancedDatasetSampler(train.dataset)
+            batch_size=batch_size,
+            collate_fn=train.dataset.collate_fn,
+            sampler=ImbalancedDatasetSampler(train.dataset, indices=train.indices.tolist(),
+                                             num_samples=len(train.indices.tolist()))
             # shuffle=True
         )
         # set train loader
         self._unbalanced_train_loader = DataLoader(
             train.dataset,
-            batch_size=1,
-            # sampler=ImbalancedDatasetSampler(train.dataset)
-            # shuffle=True
+            batch_size=batch_size,
+            collate_fn=train.dataset.collate_fn,
+            shuffle=True
         )
+
         # set validation loader
         self._dev_loader = DataLoader(
+            dev_dataset,
+            batch_size=batch_size,
+            collate_fn=dev_dataset.collate_fn,
+
+        ) if dev_dataset else DataLoader(
             dev,
-            batch_size=1,
-            # sampler=ImbalancedDatasetSampler(dev)
-            # shuffle=True
+            batch_size=batch_size,
+            collate_fn=dev.dataset.collate_fn,
         )
-        # set train loader
+
+        # set test loader
         self._test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_size,
+            collate_fn=test_dataset.collate_fn,
+        ) if test_dataset else DataLoader(
             test,
-            batch_size=1,
-            # sampler=ImbalancedDatasetSampler(test)
-            # shuffle=True
+            batch_size=batch_size,
+            collate_fn=test.dataset.collate_fn,
         )
 
     # train a model, input is the enum of the model type
@@ -268,19 +276,18 @@ class BilinearMultiClassActivator:
         for epoch_num in range(self._epochs):
             print("epoch" + str(epoch_num))
             # calc number of iteration in current epoch
-            for batch_index, (A, D, x0, embed, l) in enumerate(self._balanced_train_loader):
+            for batch_index, (A, x0, embed, l) in enumerate(self._balanced_train_loader):
                 if self._gpu:
-                    A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
+                    A, x0, embed, l = A.cuda(), x0.cuda(), embed.cuda(), l.cuda()
                 # print progress
                 self._model.train()
 
-                output = self._model(A, D, x0, embed)           # calc output of current model on the current batch
-                loss = self._loss_func(output, l)               # calculate loss
-                loss.backward()                                 # back propagation
-
-                if (batch_index + 1) % self._batch_size == 0 or (batch_index + 1) == len_data:  # batching
-                    self._model.optimizer.step()                # update weights
-                    self._model.zero_grad()                     # zero gradients
+                output = self._model(A, x0, embed)                   # calc output of current model on the current batch
+                loss = self._loss_func(output.squeeze(dim=1), l)     # calculate loss
+                loss.backward()                                      # back propagation
+                # if (batch_index + 1) % self._batch_size == 0 or (batch_index + 1) == len_data:  # batching
+                self._model.optimizer.step()                         # update weights
+                self._model.zero_grad()                              # zero gradients
 
                 self._print_progress(batch_index, len_data, job=TRAIN_JOB)
 
@@ -304,18 +311,18 @@ class BilinearMultiClassActivator:
         self._model.eval()
         # calc number of iteration in current epoch
         len_data = len(data_loader)
-        for batch_index, (A, D, x0, embed, l) in enumerate(data_loader):
+        for batch_index, (A, x0, embed, l) in enumerate(data_loader):
             if self._gpu:
-                A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
+                A, x0, embed, l = A.cuda(), x0.cuda(), embed.cuda(), l.cuda()
             # print progress
             self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
-            output = self._model(A, D, x0, embed)
+            output = self._model(A, x0, embed)
             # calculate total loss
-            loss_count += self._loss_func(output, l)
+            loss_count += self._loss_func(output.squeeze(dim=1), l)
 
-            true_labels.append(l.item())
-            pred_labels.append(output.argmax().item())
-            pred_auc_labels.append(output.tolist()[0])
+            true_labels += l.tolist()
+            pred_labels += output.squeeze(dim=1).argmax(dim=1).tolist()
+            pred_auc_labels += output.squeeze(dim=1).tolist()
 
         # update loss accuracy
         loss = float(loss_count / len(data_loader))

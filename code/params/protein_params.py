@@ -1,13 +1,7 @@
+import time
+
 from torch.nn.functional import relu, softmax, cross_entropy
 from torch.optim import Adam
-import os
-from betweenness_centrality import BetweennessCentralityCalculator
-from bfs_moments import BfsMomentsCalculator
-from bilinear_model import LayeredBilinearModule
-from dataset.dataset import BilinearDataset
-from dataset.dataset_external_data import ExternalData
-from feature_calculators import FeatureMeta
-from multi_class_bilinear_activator import BilinearMultiClassActivator
 from params.parameters import BilinearDatasetParams, BilinearActivatorParams, BilinearLayerParams, LinearLayerParams, \
     LayeredBilinearModuleParams, DEG, CENTRALITY, BFS, NORM_REDUCED, ExternalDataParams
 
@@ -84,8 +78,8 @@ class ProteinBilinearLayerParams(BilinearLayerParams):
         self.LEFT_LINEAR_COL_DIM = 1            # out rows
         self.RIGHT_LINEAR_ROW_DIM = ftr_len     # should be equal to FirstLayerModelParams::ROW_DIM
         self.RIGHT_LINEAR_COL_DIM = 6           # out cols
-        self.ACTIVATION_FUNC = softmax
-        self.ACTIVATION_FUNC_ARGS = {"dim": 1}
+        self.ACTIVATION_FUNC = lambda x: x
+        self.ACTIVATION_FUNC_ARGS = {}
 
 
 class ProteinLinearLayerParams(LinearLayerParams):
@@ -122,15 +116,22 @@ class ProteinLayeredBilinearModuleParams(LayeredBilinearModuleParams):
 class ProteinBilinearActivatorParams(BilinearActivatorParams):
     def __init__(self):
         super().__init__()
-        self.DEV_SPLIT = 0.15
-        self.TEST_SPLIT = 0.15
+        self.DEV_SPLIT = 0.333
+        self.TEST_SPLIT = 0.333
         self.LOSS = cross_entropy  # f.factor_loss  #
-        self.BATCH_SIZE = 32
+        self.BATCH_SIZE = 64
         self.EPOCHS = 1000
         self.DATASET = "Protein - MultiClass"
 
 
 if __name__ == '__main__':
+    from bilinear_model import LayeredBilinearModule
+    from dataset.dataset_model import BilinearDataset
+    from dataset.dataset_external_data import ExternalData
+    from multi_class_bilinear_activator import BilinearMultiClassActivator
+
+    t = time.time()
+
     ALL = True
     if ALL == True:
         ext_train = ExternalData(ProteinAllExternalDataParams())
@@ -154,3 +155,5 @@ if __name__ == '__main__':
             ProteinLayeredBilinearModuleParams(ftr_len=protein_train_ds.len_features)), ProteinBilinearActivatorParams(),
             protein_train_ds, dev_data=protein_dev_ds, test_data=protein_test_ds)
         activator.train()
+
+    print("total time", time.time() - t)

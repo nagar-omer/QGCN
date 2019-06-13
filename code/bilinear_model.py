@@ -1,5 +1,7 @@
 from torch.nn import Module, Linear, Dropout, Embedding, ModuleList
 import torch
+from torch.utils.data import DataLoader
+
 from params.parameters import LinearLayerParams, BilinearLayerParams, NORM_REDUCED, \
     NORM_REDUCED_SYMMETRIC, LayeredBilinearModuleParams
 
@@ -30,12 +32,12 @@ class LinearLayer(Module):
         # Dropout layer
         x0 = self._dropout(x0) if self._dropout else x0
         # tanh( A(n x n) * x0(n x d) * W1(d x k) )
-        Ax = torch.mm(A[0, :, :], x0[0, :, :])
+        Ax = torch.matmul(A, x0)
         self._sync()
 
         x = self._linear(Ax)
         x1 = self._activation(x)
-        return x1.unsqueeze(dim=0)
+        return x1
 
 
 class BilinearLayer(Module):
@@ -57,10 +59,10 @@ class BilinearLayer(Module):
 
     def forward(self, A, x0, x1):
         # sigmoid( W2(1 x k) * trans(x1)(k x n) * A(n x n) * x0(n x d) * W1(d x 1) )
-        x1_A = torch.mm(torch.t(x1[0, :, :]), A[0, :, :])
+        x1_A = torch.matmul(x1.permute(0, 2, 1), A)
         self._sync()
-        W2_x1_A = self._left_linear(torch.t(x1_A))
-        W2_x1_A_x0 = torch.mm(torch.t(W2_x1_A), x0[0, :, :])
+        W2_x1_A = self._left_linear(x1_A.permute(0, 2, 1))
+        W2_x1_A_x0 = torch.matmul(W2_x1_A.permute(0, 2, 1), x0)
         self._sync()
         W2_x1_A_x0_W3 = self._right_linear(W2_x1_A_x0)
         x2 = self._activation(W2_x1_A_x0_W3, **self._activation_args)
@@ -88,7 +90,6 @@ class LayeredBilinearModule(Module):
                 self._embed_layers.append(Embedding(vocab_dim, embed_dim))
             self._embed_layers = ModuleList(self._embed_layers)
 
-        self._norm = params.NORM
         self._num_layers = params.NUM_LAYERS
         self._linear_layers = []
         # create linear layers
@@ -117,48 +118,38 @@ class LayeredBilinearModule(Module):
     def _fix_shape(self, input):
         return input if len(input.shape) == 3 else input.unsqueeze(dim=0)
 
-    def forward(self, A, D, x0, embed):
+    def forward(self, A, x0, embed):
         if self._is_embed:
             list_embed = []
             for i, embedding in enumerate(self._embed_layers):
-                list_embed.append(embedding(embed[0, :, i]).unsqueeze(dim=0))
+                list_embed.append(embedding(embed[:, :, i]))
             x0 = torch.cat([x0] + list_embed, dim=2)
 
-        # A, D, x0 = self._fix_shape(A), self._fix_shape(D), self._fix_shape(x0)
-        if self._norm == NORM_REDUCED:
-            # D^-0.5 A D^-0.5
-            D_squrt = torch.sqrt(D[0, :, :]).float()
-            self._sync()
-            AD = torch.mm(A[0, :, :], D_squrt)
-            self._sync()
-            DAD = torch.mm(D_squrt, AD)
-            self._sync()
-            Adj = DAD.unsqueeze(dim=0)
-            self._sync()
-        if self._norm == NORM_REDUCED_SYMMETRIC:
-            # D^-0.5 [A + A.T + I] D^-0.5
-            pass
-        else:  # no normalization
-            Adj = A
-            self._sync()
-
-        x1 = x0.clone()
+        x1 = x0
         self._sync()
         for i in range(self._num_layers):
-            x1 = self._linear_layers[i](Adj, x1)
-        x2 = self._bilinear_layer(Adj, x0, x1)
+            x1 = self._linear_layers[i](A, x1)
+        x2 = self._bilinear_layer(A, x0, x1)
         return x2
 
 
 if __name__ == "__main__":
+    from dataset.datset_sampler import ImbalancedDatasetSampler
+    from params.aids_params import AidsAllExternalDataParams, AidsDatasetAllParams
+    from dataset.dataset_external_data import ExternalData
+    from dataset.dataset_model import BilinearDataset
 
-    ds = RefaelDataset(RefaelDatasetParams())
+    ext_train = ExternalData(AidsAllExternalDataParams())
+    ds = BilinearDataset(AidsDatasetAllParams(), external_data=ext_train)
     dl = DataLoader(
         dataset=ds,
-        batch_size=1,
+        collate_fn=ds.collate_fn,
+        batch_size=64,
+        sampler=ImbalancedDatasetSampler(ds)
     )
-
-    module = LayeredBilinearModule(LayeredBilinearModuleParams(ftr_len=ds.len_features))
+    m_params = LayeredBilinearModuleParams(ftr_len=ds.len_features, embed_vocab_dim=ext_train.len_embed())
+    m_params.EMBED_DIMS = [20, 20]
+    module = LayeredBilinearModule(m_params)
     # module = BilinearModule(BilinearModuleParams())
     for i, (_A, _D, _x0, _l) in enumerate(dl):
         _x2 = module(_A, _D, _x0)

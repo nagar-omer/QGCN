@@ -7,7 +7,7 @@ from betweenness_centrality import BetweennessCentralityCalculator
 from bfs_moments import BfsMomentsCalculator
 from bilinear_activator import BilinearActivator
 from bilinear_model import LayeredBilinearModule
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from dataset.dataset_external_data import ExternalData
 from feature_calculators import FeatureMeta
 from params.parameters import BilinearDatasetParams, LayeredBilinearModuleParams, LinearLayerParams, \
@@ -104,8 +104,8 @@ class AidsLinearLayerParams(LinearLayerParams):
 class AidsLayeredBilinearModuleParams(LayeredBilinearModuleParams):
     def __init__(self, ftr_len=6, layer_dim=None, embed_vocab_dim=None):
         super().__init__(ftr_len, layer_dim, embed_vocab_dim)
-        self.EMBED_DIMS = [10, 10]
-        self.DROPOUT = 0.01
+        self.EMBED_DIMS = [20, 20]
+        self.DROPOUT = 0
         self.LR = 1e-3
         self.OPTIMIZER = Adam
         self.WEIGHT_DECAY = 0
@@ -123,8 +123,8 @@ class AidsLayeredBilinearModuleParams(LayeredBilinearModuleParams):
 class AidsBilinearActivatorParams(BilinearActivatorParams):
     def __init__(self):
         super().__init__()
-        self.DEV_SPLIT = 0.15
-        self.TEST_SPLIT = 0.15
+        self.DEV_SPLIT = 0.1153
+        self.TEST_SPLIT = 0.538
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #
         self.BATCH_SIZE = 32
         self.EPOCHS = 100

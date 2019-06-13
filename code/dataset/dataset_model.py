@@ -1,14 +1,16 @@
 from scipy.stats import zscore
 from torch import Tensor
-from torch.utils.data import Dataset
+from torch.nn import ConstantPad2d
+from torch.utils.data import Dataset, DataLoader
 from collections import Counter
-
-from dataset.dataset_external_data import ExternalData
 from features_processor import FeaturesProcessor, log_norm
 from graph_features import GraphFeatures
 from loggers import PrintLogger
 from multi_graph import MultiGraph
-from params.parameters import BilinearDatasetParams, DATA_INPUT_DIR, PKL_DIR, FEATURES_PKL_DIR, DEG, IN_DEG, OUT_DEG
+from dataset.dataset_external_data import ExternalData
+from params.parameters import BilinearDatasetParams, DATA_INPUT_DIR, PKL_DIR, FEATURES_PKL_DIR, DEG, IN_DEG, OUT_DEG, \
+    NORM_REDUCED, NORM_REDUCED_SYMMETRIC
+from params.protein_params import ProteinDatasetTrainParams
 import os
 import pandas as pd
 import networkx as nx
@@ -38,14 +40,14 @@ class BilinearDataset(Dataset):
 
     @property
     def label_count(self):
-        return Counter([v[4] for name, v in self._data.items()])
+        return Counter([v[3] for name, v in self._data.items()])
 
     def label(self, idx):
-        return self._data[self._idx_to_name[idx]][4]
+        return self._data[self._idx_to_name[idx]][3]
 
     @property
     def len_features(self):
-        return self._data[self._idx_to_name[0]][2].shape[1]
+        return self._data[self._idx_to_name[0]][1].shape[1]
 
     def _init_ftrs(self):
         self._deg, self._in_deg, self._out_deg, self._is_ftr, self._ftr_meta = False, False, False, False, {}
@@ -143,7 +145,7 @@ class BilinearDataset(Dataset):
         key_to_idx_map = []                     # keep ordered list (g_id, num_nodes) according to stack order
 
         # stack
-        for g_id, (A, D, gnx_vec, embed_vec, label) in data.items():
+        for g_id, (A, gnx_vec, embed_vec, label) in data.items():
             all_data_values_vec.append(gnx_vec)
             key_to_idx_map.append((g_id, gnx_vec.shape[0]))  # g_id, number of nodes ... ordered
         all_data_values_vec = np.vstack(all_data_values_vec)
@@ -155,15 +157,15 @@ class BilinearDataset(Dataset):
         new_data_dict = {}
         start_idx = 0
         for g_id, num_nodes in key_to_idx_map:
-            new_data_dict[g_id] = (data[g_id][0], data[g_id][1], z_scored_data[start_idx: start_idx+num_nodes],
-                                   data[g_id][3], data[g_id][4])
+            new_data_dict[g_id] = (data[g_id][0], z_scored_data[start_idx: start_idx+num_nodes],
+                                   data[g_id][2], data[g_id][3])
             start_idx += num_nodes
 
         return new_data_dict
 
     """
     builds a data dictionary
-    { ... graph_name: ( A = Adjacency_matrix, x = graph_vec, label ) ...}  
+    { ... graph_name: ( A = Adjacency_matrix, x = graph_vec, label ) ... }  
     """
     def _build_data(self):
         ext_data_id = "None" if not self._is_external_data else "_embed_ftr_" + str(self._external_data.embed_headers)\
@@ -179,40 +181,82 @@ class BilinearDataset(Dataset):
             #     continue
             node_order = list(gnx.nodes)
             idx_to_name.append(gnx_id)
-            A = nx.adjacency_matrix(gnx, nodelist=node_order)
-            D = self._degree_matrix(gnx, nodelist=node_order)
+
+            A = nx.adjacency_matrix(gnx, nodelist=node_order).todense()
+
+            if self._params.NORM == NORM_REDUCED:
+                # D^-0.5 A D^-0.5
+                D = self._degree_matrix(gnx, nodelist=node_order)
+                D_sqrt = np.matrix(np.sqrt(D))
+                adjacency = D_sqrt * np.matrix(A) * D_sqrt
+
+            elif self._params.NORM == NORM_REDUCED_SYMMETRIC:
+                # D^-0.5 [A + A.T + I] D^-0.5
+                D = self._degree_matrix(gnx, nodelist=node_order)
+                D_sqrt = np.matrix(np.sqrt(D))
+                adjacency = D_sqrt * np.matrix(A + A.T + np.identity(A.shape[0])) * D_sqrt
+            else:
+                adjacency = A
+
             gnx_vec = self._gnx_vec(gnx_id, gnx, node_order)
             embed_vec = [self._external_data.embed_feature(gnx_id, d) for d in node_order] \
                 if self._is_external_data and self._external_data.is_embed else None
-            data[gnx_id] = (A, D, gnx_vec, embed_vec, self._labels[gnx_id])
+
+            data[gnx_id] = (adjacency, gnx_vec, embed_vec, self._labels[gnx_id])
 
         data = self._z_score_all_data(data)
         pickle.dump((data, idx_to_name), open(pkl_path, "wb"))
         return data, idx_to_name
 
+    def collate_fn(self, batch):
+        lengths_sequences = []
+        # calculate max word len + max char len
+        for A, x, e, l in batch:
+            lengths_sequences.append(A.shape[0])
+
+        # in order to pad all batch to a single dimension max length is needed
+        seq_max_len = np.max(lengths_sequences)
+
+        # new batch variables
+        adjacency_batch = []
+        x_batch = []
+        embeddings_batch = []
+        labels_batch = []
+        for A, x, e, l in batch:
+            # pad word vectors
+            adjacency_pad = ConstantPad2d((0, seq_max_len - A.shape[0], 0, seq_max_len - A.shape[0]), 0)
+            adjacency_batch.append(adjacency_pad(A).tolist())
+            vec_pad = ConstantPad2d((0, 0, 0, seq_max_len - A.shape[0]), 0)
+            x_batch.append(vec_pad(x).tolist())
+            embeddings_batch.append(vec_pad(e).tolist() if self._is_external_data and self._external_data.is_embed else e)
+            labels_batch.append(l)
+
+        return Tensor(adjacency_batch), Tensor(x_batch), Tensor(embeddings_batch).long(), Tensor(labels_batch).long()
+
     def __getitem__(self, index):
         gnx_id = self._idx_to_name[index]
-        A, D, x, embed, label = self._data[gnx_id]
+        A, x, embed, label = self._data[gnx_id]
         embed = 0 if embed is None else Tensor(embed).long()
-        return Tensor(A.todense()), Tensor(D), Tensor(x), embed, label
+        return Tensor(A), Tensor(x), embed, label
 
     def __len__(self):
         return len(self._idx_to_name)
 
 
 if __name__ == "__main__":
-    from params.protein_params import ProteinDatasetTrainParams
-    from torch.utils.data import DataLoader
     from dataset.datset_sampler import ImbalancedDatasetSampler
-    ds = BilinearDataset(ProteinDatasetTrainParams())
+    from params.aids_params import AidsAllExternalDataParams, AidsDatasetAllParams
+
+    ext_train = ExternalData(AidsAllExternalDataParams())
+    ds = BilinearDataset(AidsDatasetAllParams(), external_data=ext_train)
     # ds = BilinearDataset(AidsDatasetTestParams())
     dl = DataLoader(
         dataset=ds,
-        batch_size=1,
+        collate_fn=ds.collate_fn,
+        batch_size=64,
         sampler=ImbalancedDatasetSampler(ds)
     )
     p = []
-    for i, (A, D, x, l) in enumerate(dl):
-        print(i, A, D, x, l)
-        p.append(l.item())
+    for i, (A, x, e, l) in enumerate(dl):
+        print(i, A, x, e, l)
     e = 0

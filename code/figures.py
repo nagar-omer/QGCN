@@ -20,7 +20,7 @@ from params.parameters import DEG
 from bilinear_activator import BilinearActivator
 from bilinear_model import LayeredBilinearModule
 from bilinear_model_gpu import LayeredBilinearModuleGPU
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from dataset.dataset_external_data import ExternalData
 from multi_class_bilinear_activator import BilinearMultiClassActivator
 from params.aids_params import AidsDatasetAllParams, AidsLayeredBilinearModuleParams, AidsBilinearActivatorParams, \

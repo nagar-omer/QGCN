@@ -1,6 +1,5 @@
 from torch import multinomial, Tensor
 from torch.utils.data import Sampler
-from dataset.dataset import BilinearDataset
 
 
 class ImbalancedDatasetSampler(Sampler):
@@ -10,7 +9,7 @@ class ImbalancedDatasetSampler(Sampler):
         num_samples (int, optional): number of samples to draw
     """
 
-    def __init__(self, dataset: BilinearDataset, indices=None, num_samples=None):
+    def __init__(self, dataset, indices=None, num_samples=None):
         # if indices is not provided,
         # all elements in the dataset will be considered
         self.indices = list(range(len(dataset))) \

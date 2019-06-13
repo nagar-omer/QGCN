@@ -3,7 +3,7 @@ from sys import stdout
 import torch
 from sklearn.metrics import roc_auc_score
 from bilinear_model import LayeredBilinearModule
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from dataset.datset_sampler import ImbalancedDatasetSampler
 from params.parameters import BilinearActivatorParams, LayeredBilinearModuleParams
 from bokeh.plotting import figure, show
@@ -29,7 +29,7 @@ class BilinearActivator:
         self._epochs = params.EPOCHS
         self._batch_size = params.BATCH_SIZE
         self._loss_func = params.LOSS
-        self._load_data(train_data, dev_data, test_data, params.DEV_SPLIT, params.TEST_SPLIT)
+        self._load_data(train_data, dev_data, test_data, params.DEV_SPLIT, params.TEST_SPLIT, params.BATCH_SIZE)
         self._init_loss_and_acc_vec()
         self._init_print_att()
 
@@ -220,7 +220,7 @@ class BilinearActivator:
         return self._auc_vec_test
 
     # load dataset
-    def _load_data(self, train_dataset, dev_dataset, test_dataset, dev_split, test_split):
+    def _load_data(self, train_dataset, dev_dataset, test_dataset, dev_split, test_split, batch_size):
         # calculate lengths off train and dev according to split ~ (0,1)
         len_dev = 0 if dev_dataset else int(len(train_dataset) * dev_split)
         len_test = 0 if test_dataset else int(len(train_dataset) * test_split)
@@ -232,7 +232,8 @@ class BilinearActivator:
         # set train loader
         self._balanced_train_loader = DataLoader(
             train.dataset,
-            batch_size=1,
+            batch_size=batch_size,
+            collate_fn=train.dataset.collate_fn,
             sampler=ImbalancedDatasetSampler(train.dataset, indices=train.indices.tolist(),
                                              num_samples=len(train.indices.tolist()))
             # shuffle=True
@@ -240,7 +241,8 @@ class BilinearActivator:
         # set train loader
         self._unbalanced_train_loader = DataLoader(
             train.dataset,
-            batch_size=1,
+            batch_size=batch_size,
+            collate_fn=train.dataset.collate_fn,
             sampler=SubsetRandomSampler(train.indices.tolist())
             # shuffle=True
         )
@@ -248,22 +250,27 @@ class BilinearActivator:
         # set validation loader
         self._dev_loader = DataLoader(
             dev_dataset,
-            batch_size=1,
+            batch_size=batch_size,
+            collate_fn=dev_dataset.collate_fn,
+
         ) if dev_dataset else DataLoader(
-            train.dataset,
-            batch_size=1,
-            sampler=SubsetRandomSampler(dev.indices.tolist())
+            dev,
+            batch_size=batch_size,
+            collate_fn=dev.dataset.collate_fn,
+            # sampler=SubsetRandomSampler(dev.indices.tolist())
             # shuffle=True
         )
 
         # set test loader
         self._test_loader = DataLoader(
             test_dataset,
-            batch_size=1,
+            batch_size=batch_size,
+            collate_fn=test_dataset.collate_fn,
         ) if test_dataset else DataLoader(
-            train.dataset,
-            batch_size=1,
-            sampler=SubsetRandomSampler(test.indices.tolist())
+            test,
+            batch_size=batch_size,
+            collate_fn=test.dataset.collate_fn,
+            # sampler=SubsetRandomSampler(test.indices.tolist())
             # shuffle=True
         )
 
@@ -272,28 +279,24 @@ class BilinearActivator:
         self._init_loss_and_acc_vec()
         # calc number of iteration in current epoch
         len_data = len(self._balanced_train_loader)
-        ppp = []
-        ttt = []
         for epoch_num in range(self._epochs):
             print("epoch" + str(epoch_num))
             # calc number of iteration in current epoch
-            for batch_index, (A, D, x0, embed, l) in enumerate(self._balanced_train_loader):
+            for batch_index, (A, x0, embed, l) in enumerate(self._balanced_train_loader):
                 if self._gpu:
-                    A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
+                    A, x0, embed, l = A.cuda(), x0.cuda(), embed.cuda(), l.cuda()
+
                 # print progress
                 self._model.train()
 
-                output = self._model(A, D, x0, embed)          # calc output of current model on the current batch
-                ppp.append(output.item())
-                ttt.append(l.item())
-                loss = self._loss_func(output.squeeze(dim=0), l.float())             # calculate loss
+                output = self._model(A, x0, embed)          # calc output of current model on the current batch
+                loss = self._loss_func(output.squeeze(dim=1).squeeze(dim=1), l.float())             # calculate loss
                 loss.backward()                                 # back propagation
 
-                if (batch_index + 1) % self._batch_size == 0 or (batch_index + 1) == len_data:  # batching
-                    self._model.optimizer.step()                # update weights
-                    self._model.zero_grad()                     # zero gradients
-                    ppp = []
-                    ttt = []
+                # if (batch_index + 1) % self._batch_size == 0 or (batch_index + 1) == len_data:  # batching
+                self._model.optimizer.step()                # update weights
+                self._model.zero_grad()                     # zero gradients
+
                 self._print_progress(batch_index, len_data, job=TRAIN_JOB)
             # validate and print progress
             self._validate(self._unbalanced_train_loader, job=TRAIN_JOB)
@@ -314,16 +317,16 @@ class BilinearActivator:
         self._model.eval()
         # calc number of iteration in current epoch
         len_data = len(data_loader)
-        for batch_index, (A, D, x0, embed, l) in enumerate(data_loader):
+        for batch_index, (A, x0, embed, l) in enumerate(data_loader):
             if self._gpu:
-                A, D, x0, embed, l = A.cuda(), D.cuda(), x0.cuda(), embed.cuda(), l.cuda()
+                A, x0, embed, l = A.cuda(), x0.cuda(), embed.cuda(), l.cuda()
             # print progress
             self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
-            output = self._model(A, D, x0, embed)
+            output = self._model(A, x0, embed)
             # calculate total loss
-            loss_count += self._loss_func(output.squeeze(dim=0), l.float())
-            true_labels.append(l.item())
-            pred.append(output.item())
+            loss_count += self._loss_func(output.squeeze(dim=1).squeeze(dim=1), l.float())
+            true_labels += l.tolist()
+            pred += output.squeeze(dim=1).squeeze(dim=1).tolist()
 
         # update loss accuracy
         loss = float(loss_count / len(data_loader))

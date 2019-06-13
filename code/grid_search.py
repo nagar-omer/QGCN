@@ -31,7 +31,7 @@ from params.mutagen_params import MutagenDatasetAllParams, MutagenLayeredBilinea
     MutagenBilinearActivatorParams, MutagenAllExternalDataParams
 from params.parameters import LayeredBilinearModuleParams, BilinearActivatorParams, BFS, CENTRALITY, \
     OUT_DEG, IN_DEG, DEG
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from itertools import product
 import csv
 import numpy as np

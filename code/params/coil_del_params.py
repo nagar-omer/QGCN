@@ -4,7 +4,7 @@ import os
 from betweenness_centrality import BetweennessCentralityCalculator
 from bfs_moments import BfsMomentsCalculator
 from bilinear_model import LayeredBilinearModule
-from dataset.dataset import BilinearDataset
+from dataset.dataset_model import BilinearDataset
 from dataset.dataset_external_data import ExternalData
 from feature_calculators import FeatureMeta
 from multi_class_bilinear_activator import BilinearMultiClassActivator
@@ -48,7 +48,7 @@ class CoilDelBilinearLayerParams(BilinearLayerParams):
         self.RIGHT_LINEAR_ROW_DIM = ftr_len     # should be equal to FirstLayerModelParams::ROW_DIM
         self.RIGHT_LINEAR_COL_DIM = 100         # out cols
         self.ACTIVATION_FUNC = softmax
-        self.ACTIVATION_FUNC_ARGS = {"dim": 1}
+        self.ACTIVATION_FUNC_ARGS = {"dim": 2}
 
 
 class CoilDelLinearLayerParams(LinearLayerParams):
