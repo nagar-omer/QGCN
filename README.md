@@ -40,7 +40,7 @@ once this is ready, all left to do is to create parameters for the model and run
 examples for param_files are aveilable under params directory
 
 example for running the code 
-'''python
+```python
 # create dataset
 ext_train = ExternalData(AidsAllExternalDataParams())
 data_params = AidsDatasetAllParams()
@@ -53,4 +53,4 @@ binary_model = LayeredBilinearModule(AidsLayeredBilinearModuleParams(
 # create trainer
 activator = BilinearActivator(binary_model, AidsBilinearActivatorParams(), aids_train_ds)
 activator.train()
-'''
+```
