@@ -126,8 +126,8 @@ class AidsBilinearActivatorParams(BilinearActivatorParams):
         self.DEV_SPLIT = 0.1153
         self.TEST_SPLIT = 0.538
         self.LOSS = functional.binary_cross_entropy_with_logits  # f.factor_loss  #
-        self.BATCH_SIZE = 32
-        self.EPOCHS = 100
+        self.BATCH_SIZE = 128
+        self.EPOCHS = 25
         self.DATASET = "Aids"
 
 

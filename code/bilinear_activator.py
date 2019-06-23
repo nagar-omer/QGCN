@@ -1,5 +1,6 @@
 from sys import stdout
 
+import nni
 import torch
 from sklearn.metrics import roc_auc_score
 from bilinear_model import LayeredBilinearModule
@@ -21,7 +22,8 @@ ACCURACY_PLOT = "accuracy"
 
 class BilinearActivator:
     def __init__(self, model: LayeredBilinearModule, params: BilinearActivatorParams, train_data: BilinearDataset,
-                 dev_data: BilinearDataset = None, test_data: BilinearDataset = None):
+                 dev_data: BilinearDataset = None, test_data: BilinearDataset = None, nni=False):
+        self._nni = nni
         self._dataset = params.DATASET
         self._gpu = torch.cuda.is_available()
         self._device = torch.device("cuda: 1" if self._gpu else "cpu")
@@ -275,12 +277,13 @@ class BilinearActivator:
         )
 
     # train a model, input is the enum of the model type
-    def train(self, show_plot=True):
+    def train(self, show_plot=True, early_stop=False):
         self._init_loss_and_acc_vec()
         # calc number of iteration in current epoch
         len_data = len(self._balanced_train_loader)
         for epoch_num in range(self._epochs):
-            print("epoch" + str(epoch_num))
+            if not self._nni:
+                print("epoch" + str(epoch_num))
             # calc number of iteration in current epoch
             for batch_index, (A, x0, embed, l) in enumerate(self._balanced_train_loader):
                 if self._gpu:
@@ -297,12 +300,26 @@ class BilinearActivator:
                 self._model.optimizer.step()                # update weights
                 self._model.zero_grad()                     # zero gradients
 
-                self._print_progress(batch_index, len_data, job=TRAIN_JOB)
+                if not self._nni:
+                    self._print_progress(batch_index, len_data, job=TRAIN_JOB)
             # validate and print progress
             self._validate(self._unbalanced_train_loader, job=TRAIN_JOB)
             self._validate(self._dev_loader, job=DEV_JOB)
             self._validate(self._test_loader, job=TEST_JOB)
-            self._print_info(jobs=[TRAIN_JOB, DEV_JOB, TEST_JOB])
+            if not self._nni:
+                self._print_info(jobs=[TRAIN_JOB, DEV_JOB, TEST_JOB])
+
+    # /----------------------  FOR NNI  -------------------------
+            if epoch_num % 10 == 0 and self._nni:
+                test_auc = self._print_test_accuracy
+                nni.report_intermediate_result(test_auc)
+            if early_stop and epoch_num > 10 and self._print_test_loss > np.mean(self._loss_vec_train[-10:]):
+                break
+
+        if self._nni:
+            test_auc = self._print_test_accuracy
+            nni.report_final_result(test_auc)
+    # -----------------------  FOR NNI  -------------------------/
 
         if show_plot:
             self._plot_acc_dev()
@@ -321,7 +338,8 @@ class BilinearActivator:
             if self._gpu:
                 A, x0, embed, l = A.cuda(), x0.cuda(), embed.cuda(), l.cuda()
             # print progress
-            self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
+            if not self._nni:
+                self._print_progress(batch_index, len_data, job=VALIDATE_JOB)
             output = self._model(A, x0, embed)
             # calculate total loss
             loss_count += self._loss_func(output.squeeze(dim=1).squeeze(dim=1), l.float())

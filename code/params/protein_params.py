@@ -96,17 +96,17 @@ class ProteinLayeredBilinearModuleParams(LayeredBilinearModuleParams):
         super().__init__(ftr_len, layer_dim, embed_vocab_dim)
         self.EMBED_DIMS = [10]
         self.NORM = NORM_REDUCED
-        self.DROPOUT = 0
+        self.DROPOUT = 0.5
         self.LR = 1e-4
         self.OPTIMIZER = Adam
-        self.WEIGHT_DECAY = 0
+        self.WEIGHT_DECAY = 1e-3
 
         if layer_dim is None:
             self.NUM_LAYERS = 3
             self.LINEAR_PARAMS_LIST = [
-                ProteinLinearLayerParams(in_dim=ftr_len, out_dim=100, dropout=self.DROPOUT),
-                ProteinLinearLayerParams(in_dim=100, out_dim=50, dropout=self.DROPOUT),
-                ProteinLinearLayerParams(in_dim=50, out_dim=25, dropout=self.DROPOUT),
+                ProteinLinearLayerParams(in_dim=ftr_len, out_dim=500, dropout=self.DROPOUT),
+                ProteinLinearLayerParams(in_dim=500, out_dim=250, dropout=self.DROPOUT),
+                ProteinLinearLayerParams(in_dim=250, out_dim=125, dropout=self.DROPOUT),
                 ProteinLinearLayerParams(in_dim=200, out_dim=1, dropout=self.DROPOUT)
             ]
         self.BILINEAR_PARAMS = ProteinBilinearLayerParams(self.LINEAR_PARAMS_LIST[self.NUM_LAYERS - 1].COL_DIM,
@@ -119,8 +119,8 @@ class ProteinBilinearActivatorParams(BilinearActivatorParams):
         self.DEV_SPLIT = 0.333
         self.TEST_SPLIT = 0.333
         self.LOSS = cross_entropy  # f.factor_loss  #
-        self.BATCH_SIZE = 64
-        self.EPOCHS = 1000
+        self.BATCH_SIZE = 32
+        self.EPOCHS = 300
         self.DATASET = "Protein - MultiClass"
 
 
