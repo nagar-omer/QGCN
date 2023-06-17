@@ -1,3 +1,6 @@
+# Full Paper
+https://arxiv.org/abs/2104.06750
+
 # QGCN
 machine learning on graph based datasets,
 
